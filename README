@@ -21,3 +21,24 @@ tmp/work/cortexa32-neon-poky-linux-musleabi/test-app/1.0-r5/image/ directory.
 
    Note: By default the test-app package will be part of alif-tiny-image rootfs,
 and the pre-compiled binaries can be found under /opt/linux_dd_test/ directory.
+
+
+Steps to add testcases
+======================
+The additional test cases can be added by following the below steps.
+
+1. Create a new test name directory under testcases directory.
+   Example:
+   $ cd testcases
+   $ mkdir -p i2c
+
+2. Create a C testcase source file.
+
+3. Create include directory and add optional needed ".h" files into it.
+
+4. Copy the testcases/mhu/Makefile into the newly created test name directory.
+   Example:
+   $ cp testcases/mhu/Makefile testcases/i2c/
+
+5. The top level Makefile compiles ".c" files under newly created test name
+   directory.
