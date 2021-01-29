@@ -22,6 +22,43 @@ tmp/work/cortexa32-neon-poky-linux-musleabi/a32-linux-dd-testcases/1.0-r6/image/
    Note: By default the a32-linux-dd-testcases package will be part of alif-tiny-image rootfs,
 and the pre-compiled binaries can be found under /opt/linux_dd_test/ directory.
 
+Steps to compile using toolchain/SDK installer
+==============================================
+1. Fetch the SDK installer (.sh) file from the following link.
+   Link: http://10.10.10.21/userContent/latest/Bolt_ASIC_Rev_A0_Linux_Application_Core/sdk/
+
+   OR
+
+   Build SDK installer using the bitbake using
+   http://10.10.10.22:8081/doku.php?id=build_linux_kernel_rootfs_bolt_asic_rev_a0#f_build_toolchain_installer_using_bitbake
+
+2. Install the SDK installer.
+
+   Example:
+   $ tmp/deploy/sdk/bolt-tiny-musl-x86_64-alif-tiny-image-cortexa32-neon-bolt-rev-a0-toolchain-0.1.sh
+Alif Iota - Tiny Linux Distribution SDK installer version 0.1
+=============================================================
+Enter target directory for SDK (default: /opt/bolt-tiny/0.1): $PWD/bolt-tiny/0.1
+You are about to install the SDK to "/var/lib/jenkins/Bolt-Rev_A0_daily/bolt-firmware-5.4/build/bolt-tiny/0.1". Proceed [Y/n]? y
+Extracting SDK......................................done
+Setting it up...done
+SDK has been successfully set up and is ready to be used.
+Each time you wish to use the SDK in a new shell session, you need to source the environment setup script e.g.
+$ . /var/lib/jenkins/Bolt-Rev_A0_daily/bolt-firmware-5.4/build/bolt-tiny/0.1/environment-setup-cortexa32-neon-poky-linux-musleabi
+
+3. Setup the environment variables.
+   $ source  /var/lib/jenkins/Bolt-Rev_A0_daily/bolt-firmware-5.4/build/bolt-tiny/0.1/environment-setup-cortexa32-neon-poky-linux-musleabi
+
+4. Change to a32_linux_DD_testcases directory and run 'make' to build binaries.
+   The binaries are built under respective test case directories.
+   $ cd a32_linux_DD_testcases
+   $ make
+
+5. To clean built binaries and object files run below command.
+   $ make TARGET=clean
+
+6. To install all binaries under 'image' directory run below command.
+   $ make TARGET=install
 
 Steps to add testcases
 ======================
