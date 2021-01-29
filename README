@@ -13,13 +13,13 @@ mentioned in http://10.10.10.22:8081/doku.php?id=build_linux_kernel_rootfs_bolt_
 or build release tarball, run the following command to set the environment.
    $ source setup.sh
 
-3. Build test-app recipe using bitbake.
-   $ bitbake test-app
+3. Build a32-linux-dd-testcases recipe using bitbake.
+   $ bitbake a32-linux-dd-testcases
 
 4. The compiled test cases can be found at
-tmp/work/cortexa32-neon-poky-linux-musleabi/test-app/1.0-r5/image/ directory.
+tmp/work/cortexa32-neon-poky-linux-musleabi/a32-linux-dd-testcases/1.0-r6/image/ directory.
 
-   Note: By default the test-app package will be part of alif-tiny-image rootfs,
+   Note: By default the a32-linux-dd-testcases package will be part of alif-tiny-image rootfs,
 and the pre-compiled binaries can be found under /opt/linux_dd_test/ directory.
 
 
