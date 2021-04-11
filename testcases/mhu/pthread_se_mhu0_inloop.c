@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <pthread.h>
 
+#define ITERATIONS 10
 void *print_message_function_send( void * );
 void *print_message_function_receive( void * );
 
@@ -41,17 +42,19 @@ int rec_count = 0;
 
 int main()
 {
-     pthread_t thread1, thread2;
-     char *message1 = "Thread 1";
-     char *message2 = "Thread 2";
-     int  iret1, iret2;
-     int fd, status;
+   pthread_t thread1, thread2;
+   char *message1 = "Thread 1";
+   char *message2 = "Thread 2";
+   int  iret1, iret2;
+   int fd, status;
 
-     fd = open("/dev/rpmsg_ctrl0", O_RDWR);
-     if(fd == -1) {
-	     printf("Failed to open /dev/rpmsg_ctrl0 \n");
-	     return -1;
-     }
+   printf("MHU0 TEST BETWEEN A32 and SE cores \n");
+   printf("================================== \n");
+   fd = open("/dev/rpmsg_ctrl0", O_RDWR);
+   if(fd == -1) {
+      printf("Failed to open /dev/rpmsg_ctrl0 \n");
+      return -1;
+   }
 
      status = ioctl(fd, RPMSG_CREATE_EPT_IOCTL, &semhu0_eptinfo);
      if (status == -1) {
@@ -60,29 +63,33 @@ int main()
      }
 
     /* Create Endpoint to receive/send MHU data */
-    fd_semhu0_ept = open("/dev/rpmsg0", O_RDWR | O_CREAT);// | O_NONBLOCK);
-
-    if(fd_semhu0_ept == -1) {
-	    printf("Unable to open file /dev/rpmsg0, error code is %d. Trying again!\n", errno);
-	    fd_semhu0_ept = open("/dev/rpmsg0", O_RDWR | O_CREAT);
-	    if (fd_semhu0_ept == -1) {
-                printf("Unable to open file for the second time\n");
-	        exit(errno);
-	    }
+    fd_semhu0_ept = open("/dev/rpmsg0", O_RDWR);
+    if (fd_semhu0_ept == -1) {
+       printf("Unable to open file /dev/rpmsg0, please try again ....\n");
+       exit(errno);
     }
+
     /* Create independent threads each of which will execute function */
-     iret1 = pthread_create( &thread1, NULL, print_message_function_send, (void*) message1);
-     iret2 = pthread_create( &thread2, NULL, print_message_function_receive, (void*) message2);
+    iret1 = pthread_create( &thread1, NULL, print_message_function_send, (void*) message1);
+    iret2 = pthread_create( &thread2, NULL, print_message_function_receive, (void*) message2);
 
-     /* Wait till threads are complete before main continues. Unless we  */
-     /* wait we run the risk of executing an exit which will terminate   */
-     /* the process and all threads before the threads have completed.   */
-     pthread_join( thread1, NULL);
-     pthread_join( thread2, NULL); 
+    /* Wait till threads are complete before main continues. Unless we  */
+    /* wait we run the risk of executing an exit which will terminate   */
+    /* the process and all threads before the threads have completed.   */
+    pthread_join( thread1, NULL);
+    pthread_join( thread2, NULL);
 
-     printf("Thread 1 returns: %d\n",iret1);
-     printf("Thread 2 returns: %d\n",iret2);
-     exit(0);
+    printf("Thread 1 returns: %d\n",iret1);
+    printf("Thread 2 returns: %d\n",iret2);
+    status = ioctl(fd_semhu0_ept, RPMSG_DESTROY_EPT_IOCTL);
+    if (status == -1) {
+        printf("Unable to destroy fd_semhu0_ept endpoint correctly \n");
+    }
+    close(fd_semhu0_ept);
+    close(fd);
+    printf("Closed opened files \n");
+
+    exit(0);
 }
 
 void * print_message_function_send( void *ptr )
@@ -90,6 +97,7 @@ void * print_message_function_send( void *ptr )
      char *message;
      message = (char *) ptr;
      int status;
+     int i;
      printf("Starting SEND: %s \n", message);
 
      /* data for two channels */
@@ -97,19 +105,14 @@ void * print_message_function_send( void *ptr )
      data[0] = 0xCAFECAFE;
      data[1] = 0xDEADDEAD;
 
-     while (1) {
+     for (i =0; i < ITERATIONS ; ++i) {
         printf("\nSEND: Sending message values 0x%x 0x%x ... ", data[0], data[1]);
 
 	/* Lock, Write/send, unlock */
 	pthread_mutex_lock( &mutex1 );
         status = write(fd_semhu0_ept, &data, sizeof(data));
 	if(status == -1) {
-	    printf("Returned with error code %d, Trying again!\n", errno);
-	    status = write(fd_semhu0_ept, &data, sizeof(data));
-	    if(status == -1) {
-	        printf("Unable to send data for the second time error code was %d\n",errno);
-	        exit(errno);
-	    }
+	    printf("Unable send data\n");
 	}
 	else {
 	    printf("Done\n");
@@ -123,6 +126,7 @@ void * print_message_function_send( void *ptr )
 
 void * print_message_function_receive( void *ptr )
 {
+     int i = 0;
      char *message;
      message = (char *) ptr;
      int status;
@@ -130,9 +134,9 @@ void * print_message_function_receive( void *ptr )
      printf("Starting RECV: %s \n", message);
      /* data to recieve */
      int data;
-     
 
-     while (1) {
+
+     for (i =0; i < ITERATIONS ; ++i) {
 	/* Lock, receive/read, and unlock */
 	pthread_mutex_lock( &mutex1 );
         printf("RECV: Reading data ..... \n");
@@ -151,5 +155,4 @@ void * print_message_function_receive( void *ptr )
 	printf("\n RECEIVE COUNT = %d\n", ++rec_count);
 	sleep(1);
      }
-
 }

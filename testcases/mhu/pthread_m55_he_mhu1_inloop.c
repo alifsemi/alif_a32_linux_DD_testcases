@@ -32,13 +32,13 @@ struct rpmsg_endpoint_info
 #define RPMSG_DESTROY_EPT_IOCTL _IO(0xb5, 0x2)
 
 
-struct rpmsg_endpoint_info semhu1_eptinfo = {"se_mhu1", 0XFFFFFFFF, 0xFFFFFFFF};
+struct rpmsg_endpoint_info m55_he_mhu1_eptinfo = {"m55_he_mhu1", 0XFFFFFFFF, 0xFFFFFFFF};
 pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER;
-int fd_semhu1_ept;
-
-extern int errno;
+int fd_m55_he_mhu1_ept;
 int snd_count = 0;
 int rec_count = 0;
+
+extern int errno;
 
 int main()
 {
@@ -48,48 +48,49 @@ int main()
    int  iret1, iret2;
    int fd, status;
 
-   printf("MHU1 TEST BETWEEN A32 and SE cores \n");
-   printf("================================== \n");
+   printf("MHU1 TEST BETWEEN A32 and M55_HE cores \n");
+   printf("===================================== \n");
+
    fd = open("/dev/rpmsg_ctrl0", O_RDWR);
    if(fd == -1) {
       printf("Failed to open /dev/rpmsg_ctrl0 \n");
       return -1;
    }
 
-     status = ioctl(fd, RPMSG_CREATE_EPT_IOCTL, &semhu1_eptinfo);
-     if (status == -1) {
-         printf("SEND IOCTL error status = 0x%x \n", status);
-         return -1;
-     }
+   status = ioctl(fd, RPMSG_CREATE_EPT_IOCTL, &m55_he_mhu1_eptinfo);
+   if (status == -1) {
+       printf("SEND IOCTL error status = 0x%x \n", status);
+       return -1;
+   }
 
-    /* Create Endpoint to receive/send MHU data */
-    fd_semhu1_ept = open("/dev/rpmsg1", O_RDWR);
-    if (fd_semhu1_ept == -1) {
-       printf("Unable to open file /dev/rpmsg1, please try again ....\n");
-       exit(errno);
-    }
+  /* Create Endpoint to receive/send MHU data */
+  fd_m55_he_mhu1_ept = open("/dev/rpmsg1", O_RDWR);// | O_CREAT);// | O_NONBLOCK);
+  if (fd_m55_he_mhu1_ept == -1) {
+    printf("Unable to open file /dev/rpmsg1, please try again ....\n");
+    exit(errno);
+  }
 
-    /* Create independent threads each of which will execute function */
-    iret1 = pthread_create( &thread1, NULL, print_message_function_send, (void*) message1);
-    iret2 = pthread_create( &thread2, NULL, print_message_function_receive, (void*) message2);
+   /* Create independent threads each of which will execute function */
+   iret1 = pthread_create( &thread1, NULL, print_message_function_send, (void*) message1);
+   iret2 = pthread_create( &thread2, NULL, print_message_function_receive, (void*) message2);
 
-    /* Wait till threads are complete before main continues. Unless we  */
-    /* wait we run the risk of executing an exit which will terminate   */
-    /* the process and all threads before the threads have completed.   */
-    pthread_join( thread1, NULL);
-    pthread_join( thread2, NULL);
+   /* Wait till threads are complete before main continues. Unless we  */
+   /* wait we run the risk of executing an exit which will terminate   */
+   /* the process and all threads before the threads have completed.   */
+   pthread_join( thread1, NULL);
+   pthread_join( thread2, NULL);
 
-    printf("Thread 1 returns: %d\n",iret1);
-    printf("Thread 2 returns: %d\n",iret2);
-    status = ioctl(fd_semhu1_ept, RPMSG_DESTROY_EPT_IOCTL);
-    if (status == -1) {
-        printf("Unable to destroy fd_semhu0_ept endpoint correctly \n");
-    }
-    close(fd_semhu1_ept);
-    close(fd);
-    printf("Closed opened files \n");
+   printf("Thread 1 returns: %d\n",iret1);
+   printf("Thread 2 returns: %d\n",iret2);
 
-    exit(0);
+   status = ioctl(fd_m55_he_mhu1_ept, RPMSG_DESTROY_EPT_IOCTL);
+   if (status == -1) {
+      printf("Unable to destroy fd_m55_he_mhu1_ept endpoint correctly \n");
+   }
+   close(fd_m55_he_mhu1_ept);
+   close(fd);
+   printf("Closed opened files \n");
+   exit(0);
 }
 
 void * print_message_function_send( void *ptr )
@@ -110,7 +111,7 @@ void * print_message_function_send( void *ptr )
 
 	/* Lock, Write/send, unlock */
 	pthread_mutex_lock( &mutex1 );
-        status = write(fd_semhu1_ept, &data, sizeof(data));
+        status = write(fd_m55_he_mhu1_ept, &data, sizeof(data));
 	if(status == -1) {
 	    printf("Unable send data\n");
 	}
@@ -135,17 +136,18 @@ void * print_message_function_receive( void *ptr )
      /* data to recieve */
      int data;
 
+
      for (i =0; i < ITERATIONS ; ++i) {
 	/* Lock, receive/read, and unlock */
 	pthread_mutex_lock( &mutex1 );
         printf("RECV: Reading data ..... \n");
-	status = read(fd_semhu1_ept, &data, sizeof(data));
+	status = read(fd_m55_he_mhu1_ept, &data, sizeof(data));
 	if (status == -1 && errno == EAGAIN) {
 		printf("No data available \n");
 	}
 
 	printf("RECV: First data is 0x%x \n", data);
-	status = read(fd_semhu1_ept, &data, sizeof(data));
+	status = read(fd_m55_he_mhu1_ept, &data, sizeof(data));
 	if (status == -1 && errno == EAGAIN) {
 		printf("No data available \n");
 	}
