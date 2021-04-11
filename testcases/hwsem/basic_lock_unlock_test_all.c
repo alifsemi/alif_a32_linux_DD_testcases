@@ -48,7 +48,9 @@ int main(int argc, char* argvp[])
    int j, i, hwsemFd[HWSEM_CNT];
    char hwsem_name[HWSEM_DV_LEN];
 
-
+   printf("Tests all 16 HWSEMs with 3 times lock, read count value,"
+          " and unlock \n");
+   printf("===============================================================\n");
    for (i = 0 ; i < HWSEM_CNT ; ++i) {
       snprintf(hwsem_name, HWSEM_DV_LEN, HWSEM_DV_FMT, i);
       hwsemFd[i] = open(hwsem_name, O_RDWR);

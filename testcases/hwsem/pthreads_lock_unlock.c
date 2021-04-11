@@ -35,6 +35,9 @@ int main()
    int  iret1, iret2;
    int status;
 
+   printf("This test case creates two POSIX threads. Each thread locks the\n"
+          "HWSEM 0 without blocking, read MASTER_ID before exiting.\n"
+          "The process finally displays count value and unlock HWSEM0.\n");
    fd = open("/dev/hwsem0", O_RDWR);
    if(fd == -1) {
       printf("Failed to open /dev/hwsem0 \n");
