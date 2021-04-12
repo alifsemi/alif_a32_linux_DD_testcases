@@ -10,8 +10,8 @@
 #include <limits.h>
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 
-#define ITERATIONS 10
 void *print_message_function_send( void * );
 void *print_message_function_receive( void * );
 
@@ -28,17 +28,32 @@ struct rpmsg_endpoint_info
         u_int32_t dst;
 };
 
+#define ITERATIONS 10
 #define RPMSG_CREATE_EPT_IOCTL _IOW(0xb5, 0x1, struct rpmsg_endpoint_info)
 #define RPMSG_DESTROY_EPT_IOCTL _IO(0xb5, 0x2)
+#define RPMSG_ENDPOINT "/dev/rpmsg1"
 
 
 struct rpmsg_endpoint_info m55_hp_mhu1_eptinfo = {"m55_hp_mhu1", 0XFFFFFFFF, 0xFFFFFFFF};
 pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER;
-int fd_m55_hp_mhu1_ept;
+int fd, fd_m55_hp_mhu1_ept;
 int snd_count = 0;
 int rec_count = 0;
 
 extern int errno;
+
+void sigintHandler(int sig_num)
+{
+   int status;
+   status = ioctl(fd_m55_hp_mhu1_ept, RPMSG_DESTROY_EPT_IOCTL);
+   if (status == -1) {
+       printf("Unable to destroy fd_m55_hp_mhu1_ept endpoint correctly \n");
+   }
+   close(fd_m55_hp_mhu1_ept);
+   close(fd);
+   printf("Closed opened files \n");
+   exit(0);
+}
 
 int main()
 {
@@ -46,7 +61,7 @@ int main()
    char *message1 = "Thread 1";
    char *message2 = "Thread 2";
    int  iret1, iret2;
-   int fd, status;
+   int status;
 
    printf("MHU1 TEST BETWEEN A32 and M55_HP cores \n");
    printf("===================================== \n");
@@ -59,16 +74,23 @@ int main()
 
    status = ioctl(fd, RPMSG_CREATE_EPT_IOCTL, &m55_hp_mhu1_eptinfo);
    if (status == -1) {
-       printf("SEND IOCTL error status = 0x%x \n", status);
-       return -1;
+       printf("RPMSG_CREATE_EPT_IOCTL IOCTL error status = 0x%x \n", status);
+       close(fd);
+       exit(errno);
    }
 
   /* Create Endpoint to receive/send MHU data */
-  fd_m55_hp_mhu1_ept = open("/dev/rpmsg1", O_RDWR);// | O_NONBLOCK);
+  fd_m55_hp_mhu1_ept = open(RPMSG_ENDPOINT, O_RDWR);
   if (fd_m55_hp_mhu1_ept == -1) {
-    printf("Unable to open file /dev/rpmsg1, please try again ....\n");
-    exit(errno);
+     printf("Unable to open %s file .. please try again \n", RPMSG_ENDPOINT);
+     printf("If %s file not found, create using mknod %s c 253 2 \n",
+             RPMSG_ENDPOINT, RPMSG_ENDPOINT);
+     close(fd);
+     exit(errno);
   }
+
+   /*Register signal handler */
+   signal(SIGINT, sigintHandler);
 
    /* Create independent threads each of which will execute function */
    iret1 = pthread_create( &thread1, NULL, print_message_function_send, (void*) message1);
