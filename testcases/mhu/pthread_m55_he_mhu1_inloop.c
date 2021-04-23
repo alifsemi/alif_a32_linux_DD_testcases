@@ -141,7 +141,7 @@ void * print_message_function_send( void *ptr )
 	}
 	printf("\nSEND COUNT = %d \n", ++snd_count);
 	pthread_mutex_unlock( &mutex1 );
-	sleep(5);
+	sleep(1);
   }
 
 }
