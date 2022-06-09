@@ -1,11 +1,11 @@
 services_objects = $(patsubst %.c,%.o,$(wildcard services_lib*.c))
 include_dirs = ../include/
-soname_services_lib = libservices_lib.so.0
-rname_services_lib = libservices_lib.so.0.0.1
-lname_services_lib = libservices_lib.so
+soname_services_lib = libservices.so.0
+rname_services_lib = libservices.so.0.0.1
+lname_services_lib = libservices.so
 
 CFLAGS  += -g -fPIC $(addprefix -I,$(include_dirs)) -Wno-discarded-qualifiers
-LDFLAGS = -L. -lservices_lib
+LDFLAGS = -L. -lservices
 TEST_PATH = /usr/
 TEST_NAME = $(shell basename $(CURDIR))
 
@@ -27,7 +27,7 @@ $(rname_services_lib): $(services_objects)
 
 install:
 	install -d $(DESTDIR)$(TEST_PATH)$(TEST_NAME) $(DESTDIR)/opt/linux_dd_test/mhu
-	cp -f $(rname_services_lib) $(soname_services_lib) $(lname_services_lib) $(DESTDIR)$(TEST_PATH)$(TEST_NAME)
+	cp -P $(rname_services_lib) $(soname_services_lib) $(lname_services_lib) $(DESTDIR)$(TEST_PATH)$(TEST_NAME)
 	install -m 0755 main $(DESTDIR)/opt/linux_dd_test/mhu/main
 
 clean:
