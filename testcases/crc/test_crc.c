@@ -32,7 +32,7 @@ void parse_input(int argc, char *argv[])
 
 	if(argc < 3) {
 		printf("Usage:%s <crc_type> <input_string>\n", argv[0]);
-		printf("valif crc types: crc32, crc32c, crc16, crc16-ccitt, crc8 crc32-alif-linux crc32-linux crc32c-linux\n");
+		printf("valid crc types: crc32, crc32c, crc16, crc16-ccitt, crc8 crc32-alif-linux crc32-linux crc32c-linux\n");
 		exit(0);
 	}
 
