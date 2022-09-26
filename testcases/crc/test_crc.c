@@ -128,15 +128,15 @@ int main(int argc, char *argv[])
 
 	n = write(fd2, input, input_len);
 
-	if(n <= 0) {
-		printf("write error\n");
+	if(n < 0) {
+		printf("write error: %s\n", strerror(errno));
 		return 0;
 	}
 
 	n = read(fd2, output, output_len);
 
-	if(n <= 0) {
-		printf("read error\n");
+	if(n < 0) {
+		printf("read error: %s\n", strerror(errno));
 		return 0;
 	}
 
