@@ -1,10 +1,18 @@
-/*
+/* Copyright (C) 2022 Alif Semiconductor - All Rights Reserved.
+ * Use, distribution and modification of this code is permitted under the
+ * terms stated in the Alif Semiconductor Software License Agreement
+ *
+ * You should have received a copy of the Alif Semiconductor Software
+ * License Agreement with this file. If not, please write to:
+ * contact@alifsemi.com, or visit: https://alifsemi.com/license
+ *
  * Test kernel watchdog driver functionality
  * from userspace application.
  * execute application to set timeout and enable wdt
  * inputs: i for keepalive, x for quit/stop
  * application will be terminated once x is provided
  * as input
+ *
  */
 
 #include <stdio.h>
