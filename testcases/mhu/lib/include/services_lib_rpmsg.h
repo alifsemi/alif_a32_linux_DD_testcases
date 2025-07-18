@@ -20,7 +20,7 @@ struct rpmsg_endpoint_info
 
 #define RPMSG_CREATE_EPT_IOCTL _IOW(0xb5, 0x1, struct rpmsg_endpoint_info)
 #define RPMSG_DESTROY_EPT_IOCTL _IO(0xb5, 0x2)
-#define MHU_SERVICES_DATA_LOC 0x0827F000
+#define MHU_SERVICES_DATA_LOC 0x027FE000
 
 struct rpmsg_endpoint_info semhu0_eptinfo = {"txdb4", 0XFFFFFFFF, 0xFFFFFFFF};
 struct rpmsg_endpoint_info semhu1_eptinfo = {"rxdb4", 0XFFFFFFFF, 0xFFFFFFFF};
