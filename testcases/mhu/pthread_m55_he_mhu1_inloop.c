@@ -1,4 +1,4 @@
-/* Copyright (C) 2022 Alif Semiconductor - All Rights Reserved.
+/* Copyright (C) 2026 Alif Semiconductor - All Rights Reserved.
  * Use, distribution and modification of this code is permitted under the
  * terms stated in the Alif Semiconductor Software License Agreement
  *
@@ -7,184 +7,286 @@
  * contact@alifsemi.com, or visit: https://alifsemi.com/license
  *
  */
-
 #include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <limits.h>
 #include <errno.h>
 #include <pthread.h>
 #include <signal.h>
+#include <string.h>
+#include <dirent.h>
 
-void *print_message_function_send( void * );
-void *print_message_function_receive( void * );
+void *send_thread(void *);
+void *recv_thread(void *);
 
-/**
- * struct rpmsg_endpoint_info - endpoint info representation
- * @name: name of service
- * @src: local address
- * @dst: destination address
- */
-struct rpmsg_endpoint_info
-{
-        char name[32];
-        u_int32_t src;
-        u_int32_t dst;
+struct rpmsg_endpoint_info {
+    char name[32];
+    uint32_t src;
+    uint32_t dst;
 };
 
 #define ITERATIONS 10
 #define RPMSG_CREATE_EPT_IOCTL _IOW(0xb5, 0x1, struct rpmsg_endpoint_info)
 #define RPMSG_DESTROY_EPT_IOCTL _IO(0xb5, 0x2)
-#define RPMSG_ENDPOINT "/dev/rpmsg3"
 
+/* RPMSG Device Paths */
+#define RPMSG_CTRL0_DEV         "/dev/rpmsg_ctrl0"
 
-struct rpmsg_endpoint_info m55_he_mhu1_eptinfo = {"m55_he_mhu1", 0XFFFFFFFF, 0xFFFFFFFF};
-pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER;
-int fd, fd_m55_he_mhu1_ept;
-int snd_count = 0;
-int rec_count = 0;
+/*
+ * Endpoints for A32 <-> M55 HE (MHU1)
+ * txdb3 -> &mbox_m55_he_mhu1_tx
+ * rxdb3 -> &mbox_m55_he_mhu1_rx
+ */
+struct rpmsg_endpoint_info ept_tx_info = {"txdb3", 0xFFFFFFFF, 0xFFFFFFFF};
+struct rpmsg_endpoint_info ept_rx_info = {"rxdb3", 0xFFFFFFFF, 0xFFFFFFFF};
 
-extern int errno;
+int fd_ctrl = -1;
+int fd_tx = -1;
+int fd_rx = -1;
 
-void sigintHandler(int sig_num)
+volatile sig_atomic_t stop_flag = 0;
+
+/**
+ * find_rpmsg_dev() - Discover /dev/rpmsgX node by endpoint name via sysfs
+ * @ept_name: Endpoint name to match (e.g. "txdb3")
+ * @dev_path: Buffer to store discovered device path (e.g. "/dev/rpmsg2")
+ * @path_len: Size of dev_path buffer
+ *
+ * Scans /sys/class/rpmsg/rpmsgX/name to find the device node whose
+ * endpoint name matches @ept_name.
+ *
+ * Return: 0 on success, -1 if no matching device found
+ */
+static int find_rpmsg_dev(const char *ept_name, char *dev_path, size_t path_len)
 {
-   int status;
-   status = ioctl(fd_m55_he_mhu1_ept, RPMSG_DESTROY_EPT_IOCTL);
-   if (status == -1) {
-       printf("Unable to destroy fd_m55_he_mhu1_ept endpoint correctly \n");
-   }
-   close(fd_m55_he_mhu1_ept);
-   close(fd);
-   printf("Closed opened files \n");
-   exit(0);
+    DIR *dir;
+    struct dirent *entry;
+    char sysfs_name_path[256];
+    char ept_name_buf[64];
+    int sysfs_fd;
+    ssize_t bytes_read;
+
+    dir = opendir("/sys/class/rpmsg");
+    if (!dir)
+        return -1;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.')
+            continue;
+
+        snprintf(sysfs_name_path, sizeof(sysfs_name_path),
+                 "/sys/class/rpmsg/%s/name", entry->d_name);
+
+        sysfs_fd = open(sysfs_name_path, O_RDONLY);
+        if (sysfs_fd < 0)
+            continue;
+
+        bytes_read = read(sysfs_fd, ept_name_buf, sizeof(ept_name_buf) - 1);
+        close(sysfs_fd);
+
+        if (bytes_read <= 0)
+            continue;
+
+        /* Remove trailing newline */
+        if (ept_name_buf[bytes_read - 1] == '\n')
+            bytes_read--;
+        ept_name_buf[bytes_read] = '\0';
+
+        if (strcmp(ept_name_buf, ept_name) == 0) {
+            snprintf(dev_path, path_len, "/dev/%s", entry->d_name);
+            closedir(dir);
+            return 0;
+        }
+    }
+
+    closedir(dir);
+    return -1;
+}
+
+static void sigint_handler(int sig_num)
+{
+    (void)sig_num;
+    stop_flag = 1;
+}
+
+static void cleanup(void)
+{
+    if (fd_tx != -1) {
+        ioctl(fd_tx, RPMSG_DESTROY_EPT_IOCTL);
+        close(fd_tx);
+        fd_tx = -1;
+    }
+    if (fd_rx != -1) {
+        ioctl(fd_rx, RPMSG_DESTROY_EPT_IOCTL);
+        close(fd_rx);
+        fd_rx = -1;
+    }
+    if (fd_ctrl != -1) {
+        close(fd_ctrl);
+        fd_ctrl = -1;
+    }
+    printf("\nClosed files, exiting\n");
 }
 
 int main()
 {
-   pthread_t thread1, thread2;
-   char *message1 = "Thread 1";
-   char *message2 = "Thread 2";
-   int  iret1, iret2;
-   int status;
+    pthread_t sender_thread, receiver_thread;
+    int ioctl_ret;
+    char rpmsg_dev_path[64];
 
-   printf("MHU1 TEST BETWEEN A32 and M55_HE cores \n");
-   printf("===================================== \n");
-   fd = open("/dev/rpmsg_ctrl0", O_RDWR);
-   if(fd == -1) {
-      printf("Failed to open /dev/rpmsg_ctrl0 \n");
-      return -1;
-   }
+    printf("==========================================\n");
+    printf("A32 <-> M55 HE MHU1 Test (6.12 Kernel)\n");
+    printf("==========================================\n");
 
-   status = ioctl(fd, RPMSG_CREATE_EPT_IOCTL, &m55_he_mhu1_eptinfo);
-   if (status == -1) {
-       printf("RPMSG_CREATE_EPT_IOCTL IOCTL error status = 0x%x \n", status);
-       close(fd);
-       exit(errno);
-   }
+    /* Open control device */
+    fd_ctrl = open(RPMSG_CTRL0_DEV, O_RDWR);
+    if (fd_ctrl == -1) {
+        printf("ERROR: Cannot open %s: %s\n", RPMSG_CTRL0_DEV, strerror(errno));
+        return -1;
+    }
 
-  /* Create Endpoint to receive/send MHU data */
-  fd_m55_he_mhu1_ept = open(RPMSG_ENDPOINT, O_RDWR);
-  if (fd_m55_he_mhu1_ept == -1) {
-     printf("Unable to open %s file .. please try again \n", RPMSG_ENDPOINT);
-     printf("If %s file not found, create using mknod %s c 253 4 \n",
-            RPMSG_ENDPOINT, RPMSG_ENDPOINT);
-     close(fd);
-     exit(errno);
-  }
+    /* Create TX endpoint (txdb3) */
+    printf("Creating TX endpoint '%s'...\n", ept_tx_info.name);
+    ioctl_ret = ioctl(fd_ctrl, RPMSG_CREATE_EPT_IOCTL, &ept_tx_info);
+    if (ioctl_ret == -1) {
+        printf("ERROR: TX IOCTL failed: %s\n", strerror(errno));
+        close(fd_ctrl);
+        return -1;
+    }
 
-   /*Register signal handler */
-   signal(SIGINT, sigintHandler);
+    /* Create RX endpoint (rxdb3) */
+    printf("Creating RX endpoint '%s'...\n", ept_rx_info.name);
+    ioctl_ret = ioctl(fd_ctrl, RPMSG_CREATE_EPT_IOCTL, &ept_rx_info);
+    if (ioctl_ret == -1) {
+        printf("ERROR: RX IOCTL failed: %s\n", strerror(errno));
+        close(fd_ctrl);
+        return -1;
+    }
 
-   /* Create independent threads each of which will execute function */
-   iret1 = pthread_create( &thread1, NULL, print_message_function_send, (void*) message1);
-   iret2 = pthread_create( &thread2, NULL, print_message_function_receive, (void*) message2);
+    /*
+     * Discover TX device via sysfs by matching endpoint name.
+     * This avoids opening the wrong /dev/rpmsgX when multiple
+     * rpmsg devices exist.
+     */
+    if (find_rpmsg_dev(ept_tx_info.name, rpmsg_dev_path, sizeof(rpmsg_dev_path)) == 0) {
+        fd_tx = open(rpmsg_dev_path, O_RDWR);
+        printf("Opened TX: %s (matched '%s')\n", rpmsg_dev_path, ept_tx_info.name);
+    } else {
+        printf("ERROR: Cannot find rpmsg device for TX endpoint '%s'\n",
+               ept_tx_info.name);
+        cleanup();
+        return -1;
+    }
 
-   /* Wait till threads are complete before main continues. Unless we  */
-   /* wait we run the risk of executing an exit which will terminate   */
-   /* the process and all threads before the threads have completed.   */
-   pthread_join( thread1, NULL);
-   pthread_join( thread2, NULL);
+    if (fd_tx == -1) {
+        printf("ERROR: Cannot open TX rpmsg device: %s\n", strerror(errno));
+        cleanup();
+        return -1;
+    }
 
-   printf("Thread 1 returns: %d\n",iret1);
-   printf("Thread 2 returns: %d\n",iret2);
+    /* Discover RX device via sysfs */
+    if (find_rpmsg_dev(ept_rx_info.name, rpmsg_dev_path, sizeof(rpmsg_dev_path)) == 0) {
+        fd_rx = open(rpmsg_dev_path, O_RDWR);
+        printf("Opened RX: %s (matched '%s')\n\n", rpmsg_dev_path, ept_rx_info.name);
+    } else {
+        printf("ERROR: Cannot find rpmsg device for RX endpoint '%s'\n",
+               ept_rx_info.name);
+        cleanup();
+        return -1;
+    }
 
-   status = ioctl(fd_m55_he_mhu1_ept, RPMSG_DESTROY_EPT_IOCTL);
-   if (status == -1) {
-      printf("Unable to destroy fd_m55_he_mhu1_ept endpoint correctly \n");
-   }
-   close(fd_m55_he_mhu1_ept);
-   close(fd);
-   printf("Closed opened files \n");
-   exit(0);
+    if (fd_rx == -1) {
+        printf("ERROR: Cannot open RX rpmsg device: %s\n", strerror(errno));
+        cleanup();
+        return -1;
+    }
+
+    /* Register signal handler — only sets a flag (async-signal-safe) */
+    signal(SIGINT, sigint_handler);
+
+    /* Create threads */
+    ioctl_ret = pthread_create(&sender_thread, NULL, send_thread, NULL);
+    if (ioctl_ret != 0) {
+        fprintf(stderr, "ERROR: Failed to create send_thread: %s\n", strerror(ioctl_ret));
+        cleanup();
+        return -1;
+    }
+
+    ioctl_ret = pthread_create(&receiver_thread, NULL, recv_thread, NULL);
+    if (ioctl_ret != 0) {
+        fprintf(stderr, "ERROR: Failed to create recv_thread: %s\n", strerror(ioctl_ret));
+        stop_flag = 1;
+        pthread_join(sender_thread, NULL);
+        cleanup();
+        return -1;
+    }
+
+    pthread_join(sender_thread, NULL);
+    pthread_join(receiver_thread, NULL);
+
+    cleanup();
+    return 0;
 }
 
-void * print_message_function_send( void *ptr )
+void *send_thread(void *arg)
 {
-     char *message;
-     message = (char *) ptr;
-     int status;
-     int i;
-     printf("Starting SEND: %s \n", message);
+    uint32_t tx_payload[2];
+    int iterator;
 
-     /* data for two channels */
-     unsigned int data[2];
-     data[0] = 0xCAFECAFE;
-     data[1] = 0xDEADDEAD;
+    (void)arg;
+    printf("SEND thread started\n");
+    tx_payload[0] = 0x11223344;  /* Different data for MHU1 */
+    tx_payload[1] = 0x55667788;
 
-     for (i =0; i < ITERATIONS ; ++i) {
-        printf("\nSEND: Sending message values 0x%x 0x%x ... ", data[0], data[1]);
+    for (iterator = 0; iterator < ITERATIONS && !stop_flag; iterator++) {
+        printf("\n=== Iteration %d ===\n", iterator + 1);
+        printf("A32: Sending MHU1: 0x%x, 0x%x\n", tx_payload[0], tx_payload[1]);
 
-	/* Lock, Write/send, unlock */
-	pthread_mutex_lock( &mutex1 );
-        status = write(fd_m55_he_mhu1_ept, &data, sizeof(data));
-	if(status == -1) {
-	    printf("Unable send data\n");
-	}
-	else {
-	    printf("Done\n");
-	}
-	printf("\nSEND COUNT = %d \n", ++snd_count);
-	pthread_mutex_unlock( &mutex1 );
-	sleep(1);
-  }
+        if (write(fd_tx, tx_payload, sizeof(tx_payload)) == -1) {
+            printf("ERROR: Write failed: %s\n", strerror(errno));
+        }
 
+        sleep(1);
+    }
+
+    printf("SEND thread done\n");
+    return NULL;
 }
 
-void * print_message_function_receive( void *ptr )
+void *recv_thread(void *arg)
 {
-     int i = 0;
-     char *message;
-     message = (char *) ptr;
-     int status;
-     sleep(1);
-     printf("Starting RECV: %s \n", message);
-     /* data to recieve */
-     int data;
+    uint32_t rx_word;
+    int iterator, read_bytes;
 
+    (void)arg;
+    printf("RECV thread started\n");
+    sleep(1);  /* Let send start first */
 
-     for (i =0; i < ITERATIONS ; ++i) {
-	/* Lock, receive/read, and unlock */
-	pthread_mutex_lock( &mutex1 );
-        printf("RECV: Reading data ..... \n");
-	status = read(fd_m55_he_mhu1_ept, &data, sizeof(data));
-	if (status == -1 && errno == EAGAIN) {
-		printf("No data available \n");
-	}
+    for (iterator = 0; iterator < ITERATIONS && !stop_flag; iterator++) {
+        /* Read first word from RX endpoint */
+        read_bytes = read(fd_rx, &rx_word, sizeof(rx_word));
+        if (read_bytes > 0) {
+            printf("A32: Received MHU1[0] = 0x%x\n", rx_word);
+        } else {
+            printf("ERROR: Read failed: %s\n", strerror(errno));
+        }
 
-	printf("RECV: First data is 0x%x \n", data);
-	status = read(fd_m55_he_mhu1_ept, &data, sizeof(data));
-	if (status == -1 && errno == EAGAIN) {
-		printf("No data available \n");
-	}
-	printf("RECV: Second data is 0x%x \n", data);
-        pthread_mutex_unlock( &mutex1 );
-	printf("\n RECEIVE COUNT = %d\n", ++rec_count);
-	sleep(1);
-     }
+        /* Read second word from RX endpoint */
+        read_bytes = read(fd_rx, &rx_word, sizeof(rx_word));
+        if (read_bytes > 0) {
+            printf("A32: Received MHU1[1] = 0x%x\n", rx_word);
+        } else {
+            printf("ERROR: Read failed: %s\n", strerror(errno));
+        }
+
+        sleep(1);
+    }
+
+    printf("RECV thread done\n");
+    return NULL;
 }
